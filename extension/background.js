@@ -15,6 +15,9 @@ const DEFAULTS = {
   dropNosniff: true,    // при неизвестном типе снимать nosniff, чтобы Firefox распознал сам
   forceInline: false,   // Content-Disposition: attachment → inline для прямых ссылок на видео
   overlay: true,        // показывать подсказку у невоспроизводимого видео
+  decoder: 'auto',      // встроенный декодер: auto — сам, button — по кнопке, off
+  quality: 720,         // высота кадра после перекодирования (0 — как в оригинале)
+  threads: 0,           // потоков перекодирования (0 — по числу ядер)
 };
 let cfg = { ...DEFAULTS };
 browser.storage.local.get(DEFAULTS).then((v) => { cfg = v; });
@@ -109,6 +112,12 @@ browser.webRequest.onHeadersReceived.addListener((d) => {
 }, { urls: ['<all_urls>'], types: ['media', 'main_frame', 'sub_frame', 'object'] },
 ['blocking', 'responseHeaders']);
 
+// Бесплатное «Расширение для видео HEVC от производителя устройства» (Microsoft).
+const STORE_URL = {
+  hevc: 'https://apps.microsoft.com/detail/9n4wgh0z6vhq',
+  mfp: 'https://support.microsoft.com/topic/media-feature-pack-list-for-windows-n-editions-c1c6fffa-d052-8338-7a79-a4bb980a700a',
+};
+
 // ── Диагностика файла ────────────────────────────────────────────────────────
 const HEAD_BYTES = 256 * 1024;
 const TAIL_BYTES = 1024 * 1024;
@@ -156,9 +165,62 @@ async function probe(url) {
   return { ...out, ...r, mime: LcProbe.containerMime(r) };
 }
 
-browser.runtime.onMessage.addListener((msg) => {
+// ── Задания встроенного декодера ─────────────────────────────────────────────
+// Проигрыватель (player.html) доступен сайтам как web-accessible ресурс, поэтому
+// адрес видео он получает не из своего URL, а по одноразовому токену: иначе любая
+// страница могла бы заставить расширение качать произвольные файлы.
+const jobs = new Map();
+const JOB_TTL = 6 * 3600e3;
+function newToken() {
+  const a = new Uint8Array(16); crypto.getRandomValues(a);
+  return Array.from(a, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+// Referer страницы для наших запросов к видео — многие CDN без него отвечают 403.
+const referers = new Map();
+function rememberReferer(url, ref) {
+  if (!ref || !/^https?:/.test(ref)) return;
+  referers.set(url, ref);
+  if (referers.size > 200) referers.delete(referers.keys().next().value);
+}
+const EXT_BASE = browser.runtime.getURL('');
+browser.webRequest.onBeforeSendHeaders.addListener((d) => {
+  const from = d.originUrl || d.documentUrl || '';
+  if (!from.startsWith(EXT_BASE)) return {};
+  const ref = referers.get(d.url);
+  if (!ref) return {};
+  const h = d.requestHeaders.filter((x) => x.name.toLowerCase() !== 'referer');
+  h.push({ name: 'Referer', value: ref });
+  return { requestHeaders: h };
+}, { urls: ['<all_urls>'] }, ['blocking', 'requestHeaders']);
+
+browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg && msg.type === 'probe') {
+    rememberReferer(msg.url, sender.url);
     return probe(msg.url).catch((e) => ({ url: msg.url, error: 'network', message: String(e && e.message || e) }));
+  }
+  if (msg && msg.type === 'register') {
+    const token = newToken();
+    const now = Date.now();
+    for (const [k, j] of jobs) if (now - j.created > JOB_TTL) jobs.delete(k);
+    rememberReferer(msg.url, sender.url);
+    jobs.set(token, {
+      url: msg.url, probe: msg.probe || null, title: msg.title || '', loop: !!msg.loop, muted: !!msg.muted,
+      autoplay: msg.autoplay !== false, created: now,
+      cfg: { quality: cfg.quality, threads: cfg.threads },
+    });
+    return Promise.resolve(token);
+  }
+  if (msg && msg.type === 'job') {
+    // Только наши страницы: токен знает лишь контент-скрипт и проигрыватель.
+    if (!sender.url || !sender.url.startsWith(EXT_BASE)) return Promise.resolve(null);
+    return Promise.resolve(jobs.get(msg.token) || null);
+  }
+  if (msg && msg.type === 'openTab') {
+    return browser.tabs.create({ url: browser.runtime.getURL('player.html') + '#' + msg.token, index: sender.tab ? sender.tab.index + 1 : undefined }).then(() => true);
+  }
+  if (msg && msg.type === 'openStore') {
+    return browser.tabs.create({ url: STORE_URL[msg.what] || STORE_URL.hevc }).then(() => true);
   }
   if (msg && msg.type === 'download') {
     return browser.downloads.download({ url: msg.url, saveAs: true }).then(() => true, () => false);

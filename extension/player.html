@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Встроенный декодер — Video MIME Fix</title>
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <video id="v" controls playsinline></video>
+  <button id="go" class="go" type="button" hidden>
+    <span class="go__icon" aria-hidden="true"></span>
+    <span>Воспроизвести<small>встроенный декодер</small></span>
+  </button>
+  <div id="st" class="st" role="status" aria-live="polite" hidden>
+    <span class="spin" aria-hidden="true"></span><span id="st-text">Запускаю встроенный декодер…</span>
+  </div>
+  <div id="err" class="err" hidden>
+    <p id="err-text"></p>
+    <p class="err__acts"><a id="err-dl" class="btn" href="#" target="_blank" rel="noopener">Открыть файл напрямую</a></p>
+  </div>
+  <script src="player.js" type="module"></script>
+</body>
+</html>

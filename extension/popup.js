@@ -1,10 +1,17 @@
 'use strict';
-const DEFAULTS = { fixHeaders: true, mkvAsWebm: true, movAsMp4: true, dropNosniff: true, forceInline: false, overlay: true };
+const DEFAULTS = { fixHeaders: true, mkvAsWebm: true, movAsMp4: true, dropNosniff: true, forceInline: false, overlay: true, decoder: 'auto', quality: 720, threads: 0 };
 
 browser.storage.local.get(DEFAULTS).then((cfg) => {
   for (const box of document.querySelectorAll('input[data-k]')) {
     box.checked = !!cfg[box.dataset.k];
     box.addEventListener('change', () => browser.storage.local.set({ [box.dataset.k]: box.checked }));
+  }
+  for (const sel of document.querySelectorAll('select[data-k]')) {
+    sel.value = String(cfg[sel.dataset.k]);
+    sel.addEventListener('change', () => {
+      const v = 'num' in sel.dataset ? Number(sel.value) : sel.value;
+      browser.storage.local.set({ [sel.dataset.k]: v });
+    });
   }
   syncSub();
 });
@@ -49,8 +56,20 @@ browser.runtime.getPlatformInfo().then(({ os }) => {
   const noH264 = missing.some((n) => n.startsWith('H.264 (MP4)')) || missing.includes('AAC');
   if (noH264 && os === 'linux') h.textContent = 'H.264/AAC не поддерживаются: установите системный ffmpeg (libavcodec). Для Flatpak — org.freedesktop.Platform.ffmpeg-full.';
   else if (noH264 && os === 'win') h.textContent = 'H.264/AAC не поддерживаются: в Windows N/KN установите «Пакет компонентов мультимедиа».';
-  else if (missing.some((n) => n.startsWith('H.265'))) h.textContent = os === 'win'
-    ? 'HEVC: нужны «Расширения для видео HEVC» из Microsoft Store и аппаратный декодер.'
-    : 'HEVC: нужен системный ffmpeg с HEVC и аппаратное декодирование (VA-API). Иначе — mpv/VLC.';
-  else h.textContent = '«Нет» у редких форматов (High 10, AC-3) — это ограничение Firefox, а не ошибка настройки.';
+  else h.textContent = '«Нет» не страшно: такие видео проигрывает встроенный декодер расширения.';
+  // Системный кодек ставится только из Microsoft Store — даём прямую кнопку.
+  const sys = document.getElementById('sys');
+  if (os === 'win' && missing.some((n) => n.startsWith('H.265'))) {
+    sys.hidden = false;
+    document.getElementById('sys-text').textContent = 'HEVC сейчас работает только через встроенный декодер. Чтобы Firefox играл его сам (быстрее и без нагрузки на процессор), установите бесплатный кодек Microsoft и перезапустите Firefox. Нужны Firefox 134+ и видеокарта с аппаратным HEVC (Intel 6-го поколения, NVIDIA GTX 950, AMD RX 400 и новее).';
+    const b = document.getElementById('sys-btn');
+    b.textContent = 'Установить кодек HEVC (Microsoft Store)';
+    b.addEventListener('click', () => browser.runtime.sendMessage({ type: 'openStore', what: 'hevc' }));
+  } else if (os === 'win' && noH264) {
+    sys.hidden = false;
+    document.getElementById('sys-text').textContent = 'В Windows N/KN нет системных кодеков H.264 и AAC — установите «Пакет компонентов мультимедиа».';
+    const b = document.getElementById('sys-btn');
+    b.textContent = 'Открыть инструкцию Microsoft';
+    b.addEventListener('click', () => browser.runtime.sendMessage({ type: 'openStore', what: 'mfp' }));
+  }
 });

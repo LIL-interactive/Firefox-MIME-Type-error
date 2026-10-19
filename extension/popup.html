@@ -16,6 +16,37 @@
     <label><input type="checkbox" data-k="overlay"> Объяснять, почему видео не воспроизводится</label>
   </section>
   <section>
+    <h2>Встроенный декодер</h2>
+    <p class="hint">Проигрывает HEVC, 10-битный H.264, AC-3, AVI и другие форматы, которые не умеет Firefox: перекодирует видео прямо в браузере. Ничего устанавливать не нужно.</p>
+    <label class="row">Включать
+      <select data-k="decoder">
+        <option value="auto">автоматически</option>
+        <option value="button">по кнопке</option>
+        <option value="off">никогда</option>
+      </select>
+    </label>
+    <label class="row">Качество
+      <select data-k="quality" data-num>
+        <option value="480">480p — быстрее</option>
+        <option value="720">720p</option>
+        <option value="1080">1080p</option>
+        <option value="0">как в оригинале — медленнее</option>
+      </select>
+    </label>
+    <label class="row">Потоков
+      <select data-k="threads" data-num>
+        <option value="0">по числу ядер</option>
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        <option value="4">4</option><option value="6">6</option>
+      </select>
+    </label>
+  </section>
+  <section id="sys" hidden>
+    <h2>Системный декодер</h2>
+    <p class="hint" id="sys-text"></p>
+    <p><button type="button" class="btn" id="sys-btn"></button></p>
+  </section>
+  <section>
     <h2>Что умеет этот Firefox</h2>
     <table id="caps"><tbody></tbody></table>
     <p class="hint" id="caps-hint"></p>

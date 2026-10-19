@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Video MIME Fix",
-  "version": "1.0.0",
-  "description": "Исправляет «Видео в поддерживаемом формате и MIME-типе не найдено» в Firefox: подставляет правильный Content-Type и объясняет, какой кодек не поддерживается.",
+  "version": "1.1.0",
+  "description": "Исправляет «Видео в поддерживаемом формате и MIME-типе не найдено» в Firefox: правит Content-Type, а видео в HEVC и других неподдерживаемых форматах проигрывает встроенным декодером.",
   "browser_specific_settings": {
     "gecko": {
       "id": "video-mime-fix@lil-interactive",
@@ -48,5 +48,9 @@
     "default_title": "Video MIME Fix",
     "default_icon": "icons/icon.svg",
     "default_popup": "popup.html"
-  }
+  },
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+  "web_accessible_resources": [
+    "player.html"
+  ]
 }

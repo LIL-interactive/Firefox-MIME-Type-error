@@ -13,9 +13,15 @@
   const NETWORK_NO_SOURCE = 3;
   const reported = new WeakSet();
   const reportedUrls = new Set();
+  let cfg = { overlay: true, decoder: 'auto' };
   let enabled = true;
-  browser.runtime.sendMessage({ type: 'config' }).then((c) => { enabled = c.overlay !== false; }, () => {});
-  browser.storage.onChanged.addListener((ch) => { if (ch.overlay) enabled = ch.overlay.newValue !== false; });
+  browser.runtime.sendMessage({ type: 'config' }).then((c) => { cfg = c; enabled = c.overlay !== false || c.decoder === 'auto'; }, () => {});
+  browser.storage.onChanged.addListener((ch) => {
+    for (const [k, { newValue }] of Object.entries(ch)) cfg[k] = newValue;
+    enabled = cfg.overlay !== false || cfg.decoder === 'auto';
+  });
+  const IS_WIN = /Win/.test(navigator.platform || '');
+  const IS_LINUX = /Linux/.test(navigator.platform || '') && !/Android/.test(navigator.userAgent);
 
   // ── Обнаружение ошибки ──────────────────────────────────────────────────
   function isWorthReporting(el) {
@@ -80,10 +86,10 @@
     switch (codec.name) {
       case 'H.265 (HEVC)':
         return [
-          'Firefox воспроизводит HEVC только через аппаратный или системный декодер, и только в свежих версиях.',
-          win ? 'Windows: обновите Firefox, установите «Расширения для видео HEVC» из Microsoft Store и проверьте в about:config, что media.wmf.hevc.enabled не равен 0.' : '',
-          lin ? 'Linux: нужен системный ffmpeg (libavcodec) с поддержкой HEVC, а для аппаратного декодирования — VA-API (media.ffmpeg.vaapi.enabled = true).' : '',
-          'Если не помогло, откройте файл в mpv или VLC. Владельцу сайта: перекодировать в H.264.',
+          'Своего декодера HEVC в Firefox нет: он берёт его у системы, и только аппаратный.',
+          win ? 'Windows: нужны Firefox 134 или новее, бесплатное «Расширение для видео HEVC от производителя устройства» (кнопка ниже) и видеокарта с аппаратным HEVC (примерно с 2016 года: Intel 6-го поколения, NVIDIA GTX 950, AMD RX 400). После установки перезапустите Firefox.' : '',
+          lin ? 'Linux: нужен системный ffmpeg (libavcodec) с HEVC и аппаратное декодирование через VA-API (media.ffmpeg.vaapi.enabled = true).' : '',
+          'Без этого видео проигрывает встроенный декодер расширения.',
         ];
       case 'H.264 (AVC)':
         if (codec.profile && /10|4:2:2|4:4:4/.test(codec.profile)) {
@@ -109,10 +115,12 @@
 
   function verdict(p, declared) {
     const lines = [], tips = [], facts = [];
+    let v_fixable = false, v_bad = [];
+    const result = () => ({ lines, tips, facts, fixable: v_fixable && !p.drm, bad: v_bad });
     if (p.error === 'network') {
       lines.push('Не удалось скачать файл для проверки: ' + (p.message || 'ошибка сети') + '.');
       tips.push('Возможно, сервер недоступен, ссылка устарела или файл защищён от прямых ссылок.');
-      return { lines, tips, facts };
+      return result();
     }
     facts.push(['HTTP', String(p.http)]);
     facts.push(['Content-Type', p.contentType || '(не указан)']);
@@ -120,7 +128,7 @@
     if (p.error === 'http') {
       lines.push(`Сервер ответил ошибкой HTTP ${p.http} — файла по этой ссылке нет или доступ запрещён.`);
       tips.push('Это проблема сайта, а не браузера: видео удалено, требует входа или защищено от хотлинка (Referer).');
-      return { lines, tips, facts };
+      return result();
     }
     const CNAME = { mp4: p.brand === 'qt' ? 'QuickTime (MOV)' : 'MP4', matroska: p.docType === 'webm' ? 'WebM' : 'Matroska (MKV)',
       ogg: 'Ogg', flac: 'FLAC', wav: 'WAV', mp3: 'MP3', aac: 'AAC (ADTS)', avi: 'AVI', flv: 'Flash Video (FLV)',
@@ -129,19 +137,20 @@
 
     switch (p.container) {
       case 'empty':
-        lines.push('Сервер вернул пустой ответ вместо видео.'); return { lines, tips, facts };
+        lines.push('Сервер вернул пустой ответ вместо видео.'); return result();
       case 'text':
         lines.push('Вместо видео сервер прислал веб-страницу или текст (обычно — страницу ошибки, капчу или защиту от хотлинка).');
         if (p.textSample) tips.push('Начало ответа: ' + p.textSample.replace(/\s+/g, ' ').slice(0, 160));
-        return { lines, tips, facts };
+        return result();
       case 'hls':
         lines.push('Это HLS-плейлист (.m3u8). Firefox не проигрывает HLS сам — это делает плеер сайта (hls.js и т.п.).');
         tips.push('Откройте ссылку в mpv/VLC или отключите блокировщик, если он мешает скриптам плеера.');
-        return { lines, tips, facts };
+        return result();
       case 'avi': case 'flv': case 'asf': case 'mpegts': case 'unknown':
+        v_fixable = p.container !== 'unknown';
         lines.push(`Контейнер «${CNAME[p.container]}» Firefox не поддерживает.`);
         tips.push('Откройте файл в mpv или VLC. Владельцу сайта — перепаковать в MP4: ' + CMD_REMUX + ' (если кодеки несовместимы — ' + CMD_REENCODE + ').');
-        return { lines, tips, facts };
+        return result();
       default: break;
     }
 
@@ -160,15 +169,21 @@
     if (p.moovAtEnd) facts.push(['Индекс (moov)', 'в конце файла']);
 
     if (bad.length) {
+      v_fixable = true; v_bad = bad;
       lines.push('Firefox не умеет декодировать: ' + bad.map((c) => c.name + (c.profile ? ' ' + c.profile : '')).join(', ') + '.');
       for (const c of bad) {
         // H.264/HEVC/AAC внутри MKV: кодек Firefox знает, мешает контейнер.
         if (p.container === 'matroska' && c.rfc && support('video/mp4', c.rfc)) {
-          tips.push(`${c.name} Firefox поддерживает, но не внутри MKV. Скачайте файл и откройте в плеере, а владельцу сайта стоит перепаковать без перекодирования: ${CMD_REMUX}`);
+          tips.push(`${c.name} Firefox поддерживает, но не внутри MKV — проигрывает встроенный декодер. Владельцу сайта стоит перепаковать без перекодирования: ${CMD_REMUX}`);
         } else tips.push(...adviceFor(c).filter(Boolean));
       }
     } else if (!p.codecs || !p.codecs.length) {
-      lines.push('Не удалось определить кодеки — файл повреждён или обрезан.');
+      // Индекс в конце файла, а сервер не отдаёт части файла — заголовки не прочитать.
+      // Встроенный декодер читает файл целиком, так что пусть попробует он.
+      v_fixable = p.container === 'mp4' || p.container === 'matroska';
+      lines.push(p.moovAtEnd && !p.ranged
+        ? 'Кодек прочитать не удалось: сведения о дорожках в конце файла, а сервер не отдаёт файл частями.'
+        : 'Не удалось определить кодеки — файл повреждён или обрезан.');
       if (p.moovAtEnd && !p.ranged) tips.push('Индекс файла в конце, а сервер не поддерживает частичную загрузку (Range) — браузер не может его прочитать. Владельцу сайта: ' + CMD_REMUX);
     } else {
       const ct = (p.contentType || '').split(';')[0].trim().toLowerCase();
@@ -188,7 +203,7 @@
         tips.push('Это MKV. Firefox воспроизводит его, только если внутри кодеки WebM (VP8/VP9/AV1 + Opus/Vorbis); иначе файл нужно перепаковать в MP4.');
       }
     }
-    return { lines, tips, facts };
+    return result();
   }
 
   // ── Карточка ────────────────────────────────────────────────────────────
@@ -239,8 +254,10 @@
     const url = el('div', 'url', target.url);
     url.title = target.url;
     const acts = el('div', 'acts');
+    const retryBtn = button('Повторить', () => { try { media.load(); media.play().catch(() => {}); } catch (_) {} card.remove(); reported.delete(media); reportedUrls.clear(); }, true);
+    retryBtn.dataset.orig = '1';
     acts.append(
-      button('Повторить', () => { try { media.load(); media.play().catch(() => {}); } catch (_) {} card.remove(); reported.delete(media); reportedUrls.clear(); }, true),
+      retryBtn,
       button('Показать', () => media.scrollIntoView({ block: 'center', behavior: 'smooth' })),
     );
     if (/^https?:/.test(target.url)) {
@@ -263,11 +280,31 @@
     browser.runtime.sendMessage({ type: 'probe', url: target.url }).then((p) => {
       const v = verdict(p, srcs.map((s) => s.type));
       status.remove();
-      for (const l of v.lines) body.append(el('p', 'lead', l));
+      const useDecoder = v.fixable && cfg.decoder !== 'off';
+      if (useDecoder && cfg.decoder === 'auto') {
+        startDecoder(media, target.url, p, card);
+        card.querySelector('.title').textContent = 'Включён встроенный декодер';
+        card.setAttribute('role', 'status');
+        body.append(el('p', 'lead', v.lines[0] + ' Видео проигрывает встроенный декодер расширения.'));
+      } else for (const l of v.lines) body.append(el('p', 'lead', l));
+      if (useDecoder && cfg.decoder !== 'auto') {
+        acts.prepend(button('Воспроизвести встроенным декодером', (e) => { e.target.remove(); startDecoder(media, target.url, p, card); }, true));
+      }
+      // Системный кодек — единственное, что расширение поставить само не может: ведём в Microsoft Store.
+      if (IS_WIN && v.bad.some((c) => c.name === 'H.265 (HEVC)')) {
+        acts.append(button('Установить кодек HEVC (Microsoft Store)', () => browser.runtime.sendMessage({ type: 'openStore', what: 'hevc' })));
+      }
+      if (IS_WIN && v.bad.some((c) => c.name === 'H.264 (AVC)' && !/10|4:2:2|4:4:4/.test(c.profile || ''))) {
+        acts.append(button('Установить Media Feature Pack', () => browser.runtime.sendMessage({ type: 'openStore', what: 'mfp' })));
+      }
       if (v.tips.length) {
+        const det = el('details');
+        det.append(el('summary', null, useDecoder ? 'Как включить системный декодер' : 'Что делать'));
         const ul = el('ul', 'tips');
         for (const t of [...new Set(v.tips)]) ul.append(el('li', null, t));
-        body.append(ul);
+        det.append(ul);
+        if (!useDecoder) det.open = true;
+        body.append(det);
       }
       if (v.facts.length) {
         const det = el('details');
@@ -277,7 +314,74 @@
         det.append(dl);
         body.append(det);
       }
+      if (useDecoder && cfg.decoder === 'auto') autoHide(card);
     }, (e) => { status.textContent = 'Не удалось проверить файл: ' + e; });
+  }
+
+  // Карточка про автоматически включённый декодер не должна висеть вечно.
+  function autoHide(card) {
+    let t = setTimeout(() => card.remove(), 12000);
+    card.addEventListener('mouseenter', () => clearTimeout(t));
+    card.addEventListener('focusin', () => clearTimeout(t));
+    card.addEventListener('mouseleave', () => { t = setTimeout(() => card.remove(), 6000); });
+  }
+
+  // ── Встроенный декодер ─────────────────────────────────────────────────
+  // Вместо «сломанного» <video> показываем проигрыватель расширения (player.html)
+  // в iframe того же размера. Исходный элемент прячем, а не удаляем — «Вернуть
+  // как было» возвращает страницу в исходное состояние.
+  const isMediaDocument = () => /^(video|audio)\//.test(document.contentType || '');
+
+  async function startDecoder(media, url, probe, card) {
+    if (media.__lcDecoder) return;
+    const token = await browser.runtime.sendMessage({
+      type: 'register', url, probe, title: document.title || '',
+      loop: media.loop, muted: media.muted, autoplay: media.autoplay || isMediaDocument(),
+    });
+    const frame = document.createElement('iframe');
+    frame.src = browser.runtime.getURL('player.html') + '#' + token;
+    frame.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+    frame.setAttribute('allowfullscreen', '');
+    frame.title = 'Встроенный декодер Video MIME Fix';
+    if (isMediaDocument()) {
+      frame.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;margin:0;z-index:2147483646;background:#000';
+      (document.body || document.documentElement).appendChild(frame);
+    } else {
+      const r = media.getBoundingClientRect();
+      const cs = getComputedStyle(media);
+      const parentW = media.parentElement ? media.parentElement.getBoundingClientRect().width : 0;
+      const w = r.width > 0 ? (parentW && Math.abs(parentW - r.width) < 2 ? '100%' : r.width + 'px') : '640px';
+      const h = r.height > 30 ? r.height + 'px' : (media instanceof HTMLAudioElement ? '120px' : '360px');
+      frame.style.cssText = `display:block;border:0;width:${w};height:${h};max-width:100%;background:#000;`;
+      if (cs.position === 'absolute' || cs.position === 'fixed') {
+        for (const k of ['position', 'top', 'left', 'right', 'bottom', 'zIndex']) frame.style[k] = cs[k];
+      }
+      media.insertAdjacentElement('afterend', frame);
+    }
+    const prevDisplay = media.style.display;
+    try { media.pause(); } catch (_) {}
+    media.style.display = 'none';
+    media.__lcDecoder = frame;
+
+    if (card) {
+      const acts = card.querySelector('.acts');
+      acts.querySelectorAll('[data-orig]').forEach((b) => b.remove());
+      const tab = button('Открыть во вкладке', () => browser.runtime.sendMessage({ type: 'openTab', token }));
+      const undo = button('Вернуть как было', () => {
+        frame.remove(); media.style.display = prevDisplay; media.__lcDecoder = null; undo.remove();
+      });
+      acts.prepend(tab, undo);
+      // Страница может запретить чужие iframe (CSP frame-src) — тогда остаётся вкладка.
+      let ok = false;
+      frame.addEventListener('load', () => { ok = true; });
+      setTimeout(() => {
+        if (ok) return;
+        frame.remove(); media.style.display = prevDisplay; media.__lcDecoder = null; undo.remove();
+        const lead = card.querySelector('.lead');
+        if (lead) lead.textContent = 'Сайт не разрешает встроить проигрыватель на страницу — откройте видео во вкладке.';
+        tab.className = 'btn btn--primary';
+      }, 5000);
+    }
   }
 
   const CSS = `

@@ -11,3 +11,8 @@ td { padding:3px 0; border-bottom:1px solid var(--line); }
 td:last-child { text-align:right; white-space:nowrap; }
 .ok { color:var(--ok); } .bad { color:var(--bad); } .maybe { color:var(--warn); }
 .hint { color:var(--muted); font-size:12px; margin:8px 0 0; }
+label.row { justify-content:space-between; align-items:center; }
+select { width:190px; font:inherit; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+.btn { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; }
+.btn:hover { border-color:var(--fg); }
+section > p { margin:6px 0; }
