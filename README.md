@@ -1,0 +1,1 @@
+"# Firefox-MIME-Type-error" 
