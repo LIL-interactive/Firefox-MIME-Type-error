@@ -1,0 +1,10 @@
+{
+  "name": "video-mime-fix",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "npx -y web-ext@8 lint -s extension",
+    "build": "npx -y web-ext@8 build -s extension -o",
+    "start": "npx -y web-ext@8 run -s extension"
+  }
+}

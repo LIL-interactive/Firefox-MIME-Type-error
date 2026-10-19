@@ -1,0 +1,13 @@
+:root { --bg:#fff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+@media (prefers-color-scheme: dark) { :root { --bg:#1c2128; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --ok:#3fb950; --bad:#f85149; --warn:#d29922; } }
+body { margin:0; padding:12px 14px; width:360px; background:var(--bg); color:var(--fg); font:13px/1.45 system-ui, sans-serif; }
+h1 { font-size:15px; margin:0 0 8px; }
+h2 { font-size:12px; margin:12px 0 6px; color:var(--muted); font-weight:600; }
+label { display:flex; gap:8px; align-items:flex-start; padding:4px 0; cursor:pointer; }
+label.sub { padding-left:22px; }
+label input { margin-top:2px; }
+table { width:100%; border-collapse:collapse; }
+td { padding:3px 0; border-bottom:1px solid var(--line); }
+td:last-child { text-align:right; white-space:nowrap; }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .maybe { color:var(--warn); }
+.hint { color:var(--muted); font-size:12px; margin:8px 0 0; }

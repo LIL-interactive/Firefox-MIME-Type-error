@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Video MIME Fix</h1>
+  <section>
+    <h2>Исправления</h2>
+    <label><input type="checkbox" data-k="fixHeaders"> Исправлять неверный Content-Type у видео и аудио</label>
+    <label class="sub"><input type="checkbox" data-k="movAsMp4"> Отдавать .mov как MP4</label>
+    <label class="sub"><input type="checkbox" data-k="mkvAsWebm"> Отдавать .mkv как WebM</label>
+    <label class="sub"><input type="checkbox" data-k="dropNosniff"> Снимать запрет на определение типа (nosniff)</label>
+    <label class="sub"><input type="checkbox" data-k="forceInline"> Открывать прямые ссылки на видео в браузере, а не скачивать</label>
+    <label><input type="checkbox" data-k="overlay"> Объяснять, почему видео не воспроизводится</label>
+  </section>
+  <section>
+    <h2>Что умеет этот Firefox</h2>
+    <table id="caps"><tbody></tbody></table>
+    <p class="hint" id="caps-hint"></p>
+  </section>
+  <script src="popup.js"></script>
+</body>
+</html>
